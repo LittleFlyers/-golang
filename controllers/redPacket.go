@@ -134,6 +134,117 @@ func (r *RedPacketController) GetLocal() {
 	r.ServeJSON()
 }
 
+/****用户自动抢红包******/
+func (r *RedPacketController) AutoGrad() {
+	c, err := redis.Dial("tcp", "127.0.0.1:6379") //链接redis
+	if err != nil {
+		fmt.Println("Connect to redis error", err)
+		return
+	}
+	defer c.Close()
+	canGetPackets := make(map[int]map[string]string) //红包map
+	/**获取请求数据**/
+	access_token := r.GetString("access_token")
+	user_latitude := r.GetString("latitude")
+	user_longitude := r.GetString("longitude")
+	redpackets, err := redis.Strings(c.Do("keys", "*")) //查询所有红包
+	var i int
+	i = 0
+	if err != nil {
+		fmt.Println("Connect to redis error", err)
+		return
+	} else {
+		/******获取可抢红包****/
+		for _, re := range redpackets {
+			latitude, err := redis.String(c.Do("hget", re, "latitude"))
+			longitude, err := redis.String(c.Do("hget", re, "longitude"))
+			radius, err := redis.String(c.Do("hget", re, "radius"))
+			redpacket_title, err := redis.String(c.Do("hget", re, "redpacket_title"))
+			distributed_location, err := redis.String(c.Do("hget", re, "distributed_location"))
+			distributed_start_time, err := redis.String(c.Do("hget", re, "distributed_start_time"))
+			total_money, err := redis.String(c.Do("hget", re, "total_money"))
+			if err != nil {
+				fmt.Println("Select error", err)
+				return
+			} else {
+				latitude, err := strconv.ParseFloat(latitude, 64)
+				longitude, err := strconv.ParseFloat(longitude, 64)
+				radius, err := strconv.ParseFloat(radius, 64)
+				user_latitude, err := strconv.ParseFloat(user_latitude, 64)
+				user_longitude, err := strconv.ParseFloat(user_longitude, 64)
+				if err != nil {
+					fmt.Println("转化失败")
+				} else {
+					check := (latitude-user_latitude)*(latitude-user_latitude) + (longitude-user_longitude)*(longitude-user_longitude)
+					if check <= 1000000 {
+						tempPecket := make(map[string]string)
+						canGetPackets[i] = tempPecket
+						if check <= radius*radius {
+							tempPecket["id"] = re
+						}
+						canGetPackets[i] = tempPecket
+						i++
+					}
+				}
+			}
+		}
+
+		/****随机选取红包****/
+		redpacket_id := rand.Intn(i)
+		redpacket_id = strconv.Atoi(redpacket_id)
+		money_amount, err := redis.String(c.Do("hget", redpacket_id, "money_amount"))
+		redpacket_amount, err := redis.String(c.Do("hget", redpacket_id, "redpacket_amount"))
+		if err != nil {
+			fmt.Println(err)
+		} else {
+			/***数据类型转化****/
+			redpacket_amount, _ := strconv.ParseFloat(redpacket_amount, 64)
+			money_amount, _ := strconv.ParseFloat(money_amount, 64)
+			/****判断剩余红包数****/
+			if redpacket_amount > 0 {
+				redpacket := make(map[string]float64) //判断
+				if redpacket_amount != 1 {
+					fmt.Println(11 - redpacket_amount)
+					temp := (money_amount / redpacket_amount) * 2
+					user_get := (rand.Float64() * temp) + 0.01
+					money_amount = money_amount - user_get
+					redpacket_amount--
+					c.Do("hset", redpacket_id, "money_amount", redpacket_amount)
+					c.Do("hset", redpacket_id, "redpacket_amount", money_amount)
+					redpacket["money"] = user_get
+					fmt.Println(money_amount)
+					fmt.Println(user_get)
+					/***将数据插入mysql**/
+					db, _ := sql.Open("mysql", "root:@/human_platform?charset=utf8")
+					stmt, _ := db.Prepare(`INSERT INTO gd_redbag_user (people_id,redpacket_id,redpacket_money) values (?,?,?)`)
+					res, _ := stmt.Exec(access_token, redpacket_id, user_get)
+					fmt.Println(res)
+				} else {
+					fmt.Println(11 - redpacket_amount)
+					user_get := money_amount
+					money_amount = money_amount - user_get
+					redpacket_amount--
+					c.Do("hset", redpacket_id, "redpacket_amount", redpacket_amount)
+					c.Do("hset", redpacket_id, "money_amount", money_amount)
+					redpacket["money"] = user_get
+					fmt.Println(money_amount)
+					fmt.Println(user_get)
+					/***将数据插入mysql**/
+					db, _ := sql.Open("mysql", "root:@/human_platform?charset=utf8")
+					stmt, _ := db.Prepare(`INSERT INTO gd_redbag_user (people_id,redpacket_id,redpacket_money) values (?,?,?)`)
+					res, _ := stmt.Exec(access_token, redpacket_id, user_get)
+					fmt.Println(res)
+				}
+				data, _ := json.Marshal(redpacket)
+				r.Data["json"] = string(data)
+				r.ServeJSON()
+			} else {
+				c.Do("del", redpacket_id)
+			}
+		}
+	}
+}
+
 /**抢红包******/
 func (r *RedPacketController) Grad() {
 	c, err := redis.Dial("tcp", "127.0.0.1:6379") //链接redis
@@ -198,12 +309,7 @@ func (r *RedPacketController) Grad() {
 	}
 }
 
-/*func getId(access_token string) {
-	db, _ := sql.Open("mysql", "root:@/human_platform?charset=utf8")
-	row, err := db.Query("SELECT user_id FROM gd_access_token WHERE user_id =" + access_token)
-
-}*/
-
+/****获取红包的详细信息****/
 func (r *RedPacketController) GetDetail() {
 	redpacket_id := r.GetString("redpacket_id")
 	db, _ := sql.Open("mysql", "root:@/human_platform?charset=utf8")
@@ -230,4 +336,23 @@ func (r *RedPacketController) GetDetail() {
 	r.Data["json"] = string(data)
 	r.ServeJSON()
 	fmt.Println(err)
+}
+
+/*******测试路由******/
+func (r *RedPacketController) Test() {
+	var user_id string
+	user_id = getId("test")
+	fmt.Println(user_id)
+}
+
+/*****获取用户id*****/
+func getId(access_token string) string {
+	db, _ := sql.Open("mysql", "root:@/human_platform?charset=utf8")
+	row, err := db.Query("SELECT user_id FROM gd_access_token WHERE user_id =" + access_token)
+	var user_id string
+	for row.Next() {
+		err = row.Scan(&user_id)
+	}
+	user_id = access_token
+	return user_id
 }

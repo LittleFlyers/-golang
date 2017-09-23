@@ -159,10 +159,6 @@ func (r *RedPacketController) AutoGrad() {
 			latitude, err := redis.String(c.Do("hget", re, "latitude"))
 			longitude, err := redis.String(c.Do("hget", re, "longitude"))
 			radius, err := redis.String(c.Do("hget", re, "radius"))
-			redpacket_title, err := redis.String(c.Do("hget", re, "redpacket_title"))
-			distributed_location, err := redis.String(c.Do("hget", re, "distributed_location"))
-			distributed_start_time, err := redis.String(c.Do("hget", re, "distributed_start_time"))
-			total_money, err := redis.String(c.Do("hget", re, "total_money"))
 			if err != nil {
 				fmt.Println("Select error", err)
 				return
@@ -348,10 +344,11 @@ func (r *RedPacketController) Test() {
 /*****获取用户id*****/
 func getId(access_token string) string {
 	db, _ := sql.Open("mysql", "root:@/human_platform?charset=utf8")
-	row, err := db.Query("SELECT user_id FROM gd_access_token WHERE user_id =" + access_token)
+	row, _ := db.Query("SELECT user_id FROM gd_access_token WHERE user_id =" + access_token)
 	var user_id string
 	for row.Next() {
-		err = row.Scan(&user_id)
+		err := row.Scan(&user_id)
+		fmt.Println(err)
 	}
 	user_id = access_token
 	return user_id

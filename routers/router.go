@@ -28,4 +28,5 @@ func init() {
 	beego.Router("/redpacket/grad", &controllers.RedPacketController{}, "post:Grad")
 	beego.Router("/redpacket/getdetail", &controllers.RedPacketController{}, "post:GetDetail")
 	beego.Router("/redpacket/test", &controllers.RedPacketController{}, "get:Test")
+	beego.Router("/redpacket/autograd", &controllers.RedPacketController{}, "post:AutoGrad")
 }

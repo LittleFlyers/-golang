@@ -190,8 +190,8 @@ func (r *RedPacketController) AutoGrad() {
 		}
 
 		/****随机选取红包****/
-		redpacket_id := rand.Intn(i)
-		redpacket_id = strconv.Atoi(redpacket_id)
+		rand_redpacket_id := rand.Intn(i)
+		redpacket_id := strconv.Itoa(rand_redpacket_id)
 		money_amount, err := redis.String(c.Do("hget", redpacket_id, "money_amount"))
 		redpacket_amount, err := redis.String(c.Do("hget", redpacket_id, "redpacket_amount"))
 		if err != nil {

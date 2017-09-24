@@ -37,6 +37,8 @@ func (r *RedPacketController) SendPacket() {
 	redpacket_amount := r.GetString("redpacket_amount")             //红包数量
 	distributed_location := r.GetString("distributed_location")     //派发地点中心
 	distributed_start_time := r.GetString("distributed_start_time") //派发开始时间
+	distributed_end_time := r.GetString("distributed_end_time")     //派发开始时间
+	redpacket_summary := r.GetString("redpacket_summary")           //红包摘要
 
 	c, err := redis.Dial("tcp", "127.0.0.1:6379")
 	if err != nil {
@@ -45,16 +47,15 @@ func (r *RedPacketController) SendPacket() {
 	}
 	defer c.Close()
 
-	_, err = c.Do("HMSET", id, "enterprise_basic_id", enterprise_basic_id, "redpacket_title", redpacket_title, "latitude", latitude, "longitude", longitude, "radius", radius, "money_amount", money_amount, "redpacket_amount", redpacket_amount, "distributed_location", distributed_location, "distributed_start_time", distributed_start_time, "total_money", money_amount)
+	_, err = c.Do("HMSET", id, "enterprise_basic_id", enterprise_basic_id, "redpacket_title", redpacket_title, "latitude", latitude, "longitude", longitude, "radius", radius, "money_amount", money_amount, "redpacket_amount", redpacket_amount, "distributed_location", distributed_location, "distributed_start_time", distributed_start_time, "total_money", money_amount, "redpacket_summary", redpacket_summary, "distributed_end_time", distributed_end_time)
 	if err != nil {
 		fmt.Println("redis set failed:", err)
 	} else {
 		/***将数据插入mysql**/
 		db, _ := sql.Open("mysql", "root:@/human_platform?charset=utf8")
-		stmt, _ := db.Prepare(`INSERT INTO gd_redbag (id,enterprise_basic_id,redpacket_title,latitude,longitude,distributed_radius,money_amount,redpacket_amount,distributed_location,distributed_start_time) values (?,?,?,?,?,?,?,?,?,?)`)
-		res, _ := stmt.Exec(id, enterprise_basic_id, redpacket_title, latitude, longitude, radius, money_amount, redpacket_amount, distributed_location, distributed_start_time)
+		stmt, _ := db.Prepare(`INSERT INTO gd_redbag (id,enterprise_basic_id,redpacket_title,latitude,longitude,distributed_radius,money_amount,redpacket_amount,distributed_location,distributed_start_time,redpacket_summary,distributed_end_time) values (?,?,?,?,?,?,?,?,?,?,?,?)`)
+		res, _ := stmt.Exec(id, enterprise_basic_id, redpacket_title, latitude, longitude, radius, money_amount, redpacket_amount, distributed_location, distributed_start_time, redpacket_summary, distributed_end_time)
 		fmt.Println(res)
-		fmt.Println(distributed_start_time)
 		response := make(map[string]string)
 		response["code"] = "200"
 		response["msg"] = "success"
@@ -188,6 +189,7 @@ func (r *RedPacketController) AutoGrad() {
 		/****随机选取红包****/
 		rand_redpacket_id := rand.Intn(i)
 		redpacket_id := strconv.Itoa(rand_redpacket_id)
+		redpacket_title, err := redis.String(c.Do("hget", redpacket_id, "redpacket_title"))
 		money_amount, err := redis.String(c.Do("hget", redpacket_id, "money_amount"))
 		redpacket_amount, err := redis.String(c.Do("hget", redpacket_id, "redpacket_amount"))
 		if err != nil {
@@ -198,7 +200,7 @@ func (r *RedPacketController) AutoGrad() {
 			money_amount, _ := strconv.ParseFloat(money_amount, 64)
 			/****判断剩余红包数****/
 			if redpacket_amount > 0 {
-				redpacket := make(map[string]float64) //判断
+				redpacket := make(map[string]string) //判断
 				if redpacket_amount != 1 {
 					fmt.Println(11 - redpacket_amount)
 					temp := (money_amount / redpacket_amount) * 2
@@ -207,7 +209,8 @@ func (r *RedPacketController) AutoGrad() {
 					redpacket_amount--
 					c.Do("hset", redpacket_id, "money_amount", redpacket_amount)
 					c.Do("hset", redpacket_id, "redpacket_amount", money_amount)
-					redpacket["money"] = user_get
+					redpacket["money"] = strconv.FormatFloat(user_get, 'E', -1, 64)
+					redpacket["redpacket_title"] = redpacket_title
 					fmt.Println(money_amount)
 					fmt.Println(user_get)
 					/***将数据插入mysql**/
@@ -222,7 +225,8 @@ func (r *RedPacketController) AutoGrad() {
 					redpacket_amount--
 					c.Do("hset", redpacket_id, "redpacket_amount", redpacket_amount)
 					c.Do("hset", redpacket_id, "money_amount", money_amount)
-					redpacket["money"] = user_get
+					redpacket["money"] = strconv.FormatFloat(user_get, 'E', -1, 64)
+					redpacket["redpacket_title"] = redpacket_title
 					fmt.Println(money_amount)
 					fmt.Println(user_get)
 					/***将数据插入mysql**/
@@ -309,24 +313,28 @@ func (r *RedPacketController) Grad() {
 func (r *RedPacketController) GetDetail() {
 	redpacket_id := r.GetString("redpacket_id")
 	db, _ := sql.Open("mysql", "root:@/human_platform?charset=utf8")
-	row, err := db.Query("SELECT redpacket_title,money_amount,distributed_start_time,latitude,longitude, distributed_location,distributed_radius FROM gd_redbag WHERE id = " + redpacket_id)
+	row, err := db.Query("SELECT redpacket_title,money_amount,distributed_start_time,latitude,longitude, distributed_location,distributed_radius,redpacket_summary,distributed_end_time FROM gd_redbag WHERE id = " + redpacket_id)
 	result := make(map[string]string)
 	for row.Next() {
 		var redpacket_title string
 		var money_amount string
 		var distributed_start_time string
+		var distributed_end_time string
 		var latitude string
 		var longitude string
 		var distributed_location string
 		var distributed_radius string
-		err = row.Scan(&redpacket_title, &money_amount, &distributed_start_time, &latitude, &longitude, &distributed_location, &distributed_radius)
+		var redpacket_summary string
+		err = row.Scan(&redpacket_title, &money_amount, &distributed_start_time, &latitude, &longitude, &distributed_location, &distributed_radius, &redpacket_summary, &distributed_end_time)
 		result["redpacket_title"] = redpacket_title
 		result["money_amount"] = money_amount
 		result["distributed_start_time"] = distributed_start_time
+		result["distributed_end_time"] = distributed_end_time
 		result["latitude"] = latitude
 		result["longitude"] = longitude
 		result["distributed_location"] = distributed_location
 		result["distributed_radius"] = distributed_radius
+		result["redpacket_summary"] = redpacket_summary
 	}
 	data, _ := json.Marshal(result)
 	r.Data["json"] = string(data)
